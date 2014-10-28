@@ -1,0 +1,195 @@
+/*
+ * To change this license header, choose License Headers in Project Properties.
+ * To change this template file, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package pl.mwrobel.activiti.websocket;
+
+import pl.mwrobel.activiti.domain.ProcessEventDTO;
+
+import java.io.IOException;
+import java.io.Serializable;
+
+import javax.jms.BytesMessage;
+import javax.jms.DeliveryMode;
+import javax.jms.Destination;
+import javax.jms.JMSException;
+import javax.jms.MapMessage;
+import javax.jms.Message;
+import javax.jms.MessageConsumer;
+import javax.jms.MessageListener;
+import javax.jms.MessageProducer;
+import javax.jms.ObjectMessage;
+import javax.jms.Queue;
+import javax.jms.QueueBrowser;
+import javax.jms.StreamMessage;
+import javax.jms.TemporaryQueue;
+import javax.jms.TemporaryTopic;
+import javax.jms.TextMessage;
+import javax.jms.Topic;
+import javax.jms.TopicSubscriber;
+import javax.websocket.RemoteEndpoint;
+
+import javax.websocket.Session;
+
+import org.activiti.engine.delegate.event.ActivitiActivityEvent;
+import org.activiti.engine.delegate.event.ActivitiEvent;
+import org.activiti.engine.delegate.event.ActivitiEventListener;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.junit.Assert;
+
+//ActiveMQ Stomp related.
+import java.util.Collections;
+
+import org.apache.activemq.ActiveMQConnectionFactory;
+import org.apache.activemq.broker.BrokerService;
+import org.apache.activemq.broker.jmx.ManagementContext;
+import org.apache.activemq.command.ActiveMQDestination;
+import org.apache.activemq.command.ActiveMQTopic;
+import org.apache.activemq.hooks.SpringContextHook;
+import org.apache.activemq.usage.SystemUsage;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import javax.jms.Connection;
+/**
+ *
+ * @author michalw
+ */
+public class ActivitiProcessEventsWebsocketBroadcaster implements ActivitiEventListener {
+
+	private static final Logger log = LoggerFactory.getLogger(ActivitiProcessEventsWebsocketBroadcaster.class);
+	private final Session session;
+	private final ObjectMapper om;
+
+	public ActivitiProcessEventsWebsocketBroadcaster(Session session) {
+		this.session = session;
+		om = new ObjectMapper();
+	}
+
+	@Override
+	public void onEvent(ActivitiEvent event) {        
+		switch (event.getType()) {
+		case ACTIVITY_STARTED: {
+			broadcastEvent((ActivitiActivityEvent)event);
+			break;
+		}
+		case ACTIVITY_COMPLETED: {
+			broadcastEvent((ActivitiActivityEvent)event);
+			break;
+		}
+		}
+	}
+
+	private void broadcastEvent(ActivitiActivityEvent e){
+		//        ProcessEventDTO dto = ProcessEventDTO.builder().activityId(e.getActivityId())
+				//                .activityName(e.getActivityId())
+		//                .activityType(e.getType().toString())
+		//                .processId(e.getProcessInstanceId())
+		//                .build();
+		//    	ProcessEventDTO dto = new ProcessEventDTO();
+		//    	dto.setActivityId(e.getActivityId());
+		//    	dto.setActivityName(e.getActivityId());
+		//    	dto.setActivityType(e.getType().toString());
+		//    	dto.setProcessId(e.getProcessInstanceId());
+		//        log.info("Activiti event received: " + e.getType());
+		//        RemoteEndpoint.Basic remoteEndpoint = session.getBasicRemote();
+		//        try {                        
+		//            remoteEndpoint.sendText(om.writeValueAsString(dto));
+		//        } catch (IOException ex) {
+		//            throw new RuntimeException(ex);
+		//        }
+
+		final BrokerService broker = new BrokerService();	
+		try{
+			broker.addConnector( "ws://localhost:61614" );	
+		}catch(Exception exp)
+		{
+			log.error(exp.toString());
+		}
+		broker.setPersistent( false );
+		SystemUsage systemUsage = broker.getSystemUsage();
+		systemUsage.getStoreUsage().setLimit(1024 * 1024 * 8);
+		systemUsage.getTempUsage().setLimit(1024 * 1024 * 8);
+		try{
+			broker.setShutdownHooks( Collections.< Runnable >singletonList( new SpringContextHook() ) );
+		}catch(Exception exp)
+		{
+			log.error(exp.toString());
+		}
+		final ActiveMQTopic topic = new ActiveMQTopic( "jms.topic.test" );
+		broker.setDestinations( new ActiveMQDestination[] { topic }  );
+
+		final ManagementContext managementContext = new ManagementContext();
+		managementContext.setCreateConnector( true );
+		broker.setManagementContext( managementContext );
+		//
+		try
+		{
+			// Create a ConnectionFactory
+			ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory("tcp://localhost:61616");
+
+			// Create a Connection
+			Connection connection = connectionFactory.createConnection();
+			connection.start();
+
+			// Create a Session
+			Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+
+			// Create the destination Queue
+			Destination destination = session.createQueue("TEST.FOO");
+
+			// Create a MessageProducer from the Session to the Topic or Queue
+			MessageProducer producer = session.createProducer(destination);
+			producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+
+			// Create a messages
+			Message sentMessage = session.createMessage();
+
+			// Tell the producer to send the message
+			long beforeSend = System.currentTimeMillis();
+			producer.send(sentMessage);
+			long afterSend = System.currentTimeMillis();
+
+			// assert message timestamp is in window
+			Assert.assertTrue(beforeSend <= sentMessage.getJMSTimestamp() && sentMessage.getJMSTimestamp() <= afterSend);
+
+			// Create a MessageConsumer from the Session to the Topic or Queue
+			MessageConsumer consumer = session.createConsumer(destination);
+
+			// Wait for a message
+			Message receivedMessage = consumer.receive(1000);
+
+			// assert we got the same message ID we sent
+			Assert.assertEquals(sentMessage.getJMSMessageID(), receivedMessage.getJMSMessageID());
+
+			// assert message timestamp is in window
+			Assert.assertTrue("JMS Message Timestamp should be set during the send method: \n" + "        beforeSend = " + beforeSend + "\n" + "   getJMSTimestamp = "
+					+ receivedMessage.getJMSTimestamp() + "\n" + "         afterSend = " + afterSend + "\n", beforeSend <= receivedMessage.getJMSTimestamp()
+					&& receivedMessage.getJMSTimestamp() <= afterSend);
+
+			// assert message timestamp is unchanged
+			Assert.assertEquals("JMS Message Timestamp of recieved message should be the same as the sent message\n        ", sentMessage.getJMSTimestamp(), receivedMessage.getJMSTimestamp());
+
+			// Clean up
+			producer.close();
+			consumer.close();
+			session.close();
+			connection.close();
+		}catch(Exception exp)
+		{
+			log.error(exp.toString());
+		}
+	}
+
+	@Override
+	public boolean isFailOnException() {
+		// The logic in the onEvent method of this listener is not critical, exceptions
+		// can be ignored if logging fails...
+		return false;
+	}
+
+}

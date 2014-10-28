@@ -1,6 +1,6 @@
 package pl.mwrobel.activiti.extensions;
 
-import pl.mwrobel.activiti.websocket.ProcessEngineEventsWebsocket;
+//import pl.mwrobel.activiti.websocket.ProcessEngineEventsWebsocket;
 import javax.servlet.ServletContext;
 import javax.servlet.ServletContextEvent;
 import javax.websocket.DeploymentException;
@@ -28,20 +28,22 @@ public class CustomActivitiServletContextListener extends ActivitiServletContext
 
     public void addProcessEventsEndpoint(ServletContextEvent ce) {
         log.info("Deploying process-engine-events websockets server endpoint");
-        ServletContext sc = ce.getServletContext();
-
-        final ServerContainer server_container
-                = (ServerContainer) ce.getServletContext().getAttribute("javax.websocket.server.ServerContainer");
-
-        try {
-            ServerEndpointConfig config
-                    = ServerEndpointConfig.Builder.create(ProcessEngineEventsWebsocket.class,
-                            "/process-engine-events").build();
-            config.getUserProperties().put("servlet.context", sc);
-            server_container.addEndpoint(config);
-        } catch (DeploymentException e) {
-            throw new RuntimeException(e);
-        }
+        log.info(ce.toString());
+        //
+//        ServletContext sc = ce.getServletContext();
+//
+//        final ServerContainer server_container
+//                = (ServerContainer) ce.getServletContext().getAttribute("javax.websocket.server.ServerContainer");
+//
+//        try {
+//            ServerEndpointConfig config
+//                    = ServerEndpointConfig.Builder.create(ProcessEngineEventsWebsocket.class,
+//                            "/process-engine-events").build();
+//            config.getUserProperties().put("servlet.context", sc);
+//            server_container.addEndpoint(config);
+//        } catch (DeploymentException e) {
+//            throw new RuntimeException(e);
+//        }
     }
 
 }
